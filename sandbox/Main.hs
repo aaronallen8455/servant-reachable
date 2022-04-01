@@ -7,19 +7,21 @@ import           Data.Proxy
 import           Network.Wai.Handler.Warp
 
 import           Servant.API.Reachable
+import           Debug.Trace
 
 main :: IO ()
 main = run 8084 $ serve (Proxy @Api) server
 
-type Api = Reachable (
-  "one" :> ( Capture "a" String :> Get '[JSON] String
-        :<|> ReqBody '[JSON] String :> Capture "oof" Int :> Get '[JSON] String
+type Api = -- Reachable (
+  "one" :> ( Get '[PlainText] String
+        :<|> ReqBody '[JSON] String :> Get '[JSON] String
         -- :<|> Capture "goof" String :> Get '[JSON] String
            )
-                     )
+                     --)
 
 server :: Server Api
-server = a :<|> one where -- :<|> two where
-  a _ = pure "a"
-  one _ _ = pure "one"
+server = a :<|> b where -- :<|> one where -- :<|> two where
+  a = pure "a"
+  b _ = pure "b"
+--   one = trace "one" undefined
   -- two _ = pure "two"
