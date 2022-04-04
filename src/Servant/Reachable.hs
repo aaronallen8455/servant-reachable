@@ -17,8 +17,6 @@ import           Servant.API.Generic (ToServantApi)
 type Trie = [Node]
 data Node = MkNode PathComponent [Node]
 
--- TODO CaptureAll
-
 -- For the Verb constructor, will need to be indifferent to the ordering of
 -- the content types. Have some way of sorting them?
 data PathComponent
@@ -44,7 +42,7 @@ type family ToPath (component :: k) (cts :: Maybe ContentTypes)
 
 type instance ToPath (string :: Symbol) _ = '(Just (Specific string), Nothing)
 type instance ToPath (Capture' mods label ty) _ = '(Just PathCapture, Nothing)
-type instance ToPath (CaptureAll a) _ = '(Just PathCaptureAll, Nothing)
+type instance ToPath (CaptureAll sym a) _ = '(Just PathCaptureAll, Nothing)
 type instance ToPath (ReqBody' mods contentTypes a) _
   = '(Nothing, Just contentTypes)
 type instance ToPath (StreamBody' mods framing ctype a) _
@@ -138,6 +136,10 @@ type family InvalidPathError (pathSym :: Symbol) where
 type family CheckPath' (visited :: Trie) (routes :: Trie) (path :: Path) (pathSym :: Symbol)
     :: Either Type Trie where
 
+  -- | Fail if a PathCaptureAll is followed by anything other than the end of the path
+  CheckPath' visited trie (PathCaptureAll ': a ': b ': c) pathSym
+    = Left (TypeError (Text "Cannot have path components after a CaptureAll: " :<>: Text pathSym))
+
   -- | Fail if the endpoint has no acceptable content types
   CheckPath' visited trie '[End verb (Just '[])] pathSym
     = Left (TypeError (Text "Empty 'Content-Type' list: " :<>: Text pathSym))
@@ -216,17 +218,9 @@ type family CheckPath' (visited :: Trie) (routes :: Trie) (path :: Path) (pathSy
         pathSym
 
   CheckPath' visited (MkNode PathCaptureAll inner ': trieRest)
-                     '[End v cts]
+                     path
                      pathSym
-    = Descend (CheckPath '[] inner '[End v cts] pathSym)
-              visited
-              PathCaptureAll
-              trieRest
-
-  CheckPath' visited (MkNode PathCaptureAll inner ': trieRest)
-                     (Specific sym ': pathRest)
-                     pathSym
-    = CheckPath' visited (MkNode PathCaptureAll inner ': trieRest) pathRest pathSym
+    = HandleCaptureAll visited inner trieRest path pathSym
 
   -- Recurse if node doesn't match
   CheckPath' visited (MkNode comp1 inner ': trieRest) (comp2 ': pathRest) pathSym
@@ -265,6 +259,25 @@ type family HandleCapture rec visited trieRest path pathSym where
   HandleCapture (Left err) v t p ps = Left err
   HandleCapture (Right _) visited trieRest path pathSym =
     CheckPath' visited trieRest path pathSym
+
+type family HandleCaptureAll visited inner trieRest path pathSym where
+  HandleCaptureAll visited inner trieRest path pathSym
+    = HandleCaptureAll'
+        (CheckPath' '[] inner (DropNonEnd path) pathSym)
+        visited
+        inner
+        trieRest
+        path
+        pathSym
+
+type family HandleCaptureAll' either visited inner trieRest path pathSym where
+  HandleCaptureAll' (Left err) v i t p ps = Left err
+  HandleCaptureAll' (Right trie) visited inner trieRest path pathSym
+    = CheckPath' (MkNode PathCaptureAll inner ': visited) trieRest path pathSym
+
+type family DropNonEnd (path :: [PathComponent]) where
+  DropNonEnd '[End v cts] = '[End v cts]
+  DropNonEnd (_ ': rest) = DropNonEnd rest
 
 type family Descend either visited comp trieRest where
   Descend (Left err) v c t = Left err
@@ -309,31 +322,3 @@ type family Reverse' acc xs where
 type family Append (xs :: [a]) (ys :: [a]) where
   Append '[] ys = ys
   Append (x ': xs) ys = x ': Append xs ys
-
--- Type family will need to return multiple things: an updated Trie as well as
--- the API type
-
--- What components have an effect on routing?
--- Fragment?
--- QueryParam? only if required?
--- Content types?
--- Auth?
-
--- It appears that Captures will go to the next handler if parsing fails, unless
--- the Lenient modifier is present.
--- So in that case, will need to keep a list of the parsing targets for the
--- capture at that position and if one reoccurs, then that is an error
-
--- Since there's no way to know if the parsing of two types is equivalent, we
--- can't garuantee that one capture is covering another. Two options:
--- 1) Check for equivalence of types in captures and fail if there are duplicates.
--- This is really ad-hoc and breaks down easily in the event that the first
--- capture has a text type that never fails to parse.
--- 2) be pessimistic and fail if the only differenciator is a Capture component.
--- This does not reflect the actual behavior of servant but gives false negatives
--- rather than false positives. Routers shouldn't be relying on this behavior
--- anyways - parsers are poor control flow
-
--- Content type is significant
-
--- How to deal with NamedRoutes?

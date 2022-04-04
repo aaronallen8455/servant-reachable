@@ -154,3 +154,81 @@ import           Servant.Reachable
 --     • Empty 'Content-Type' list: /
 --     • When checking the inferred type
 --         it :: Proxy (TypeError ...)
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               CaptureAll "test" Bool :> "two" :> Get '[JSON] String
+--        ))
+--   )
+-- :}
+-- <BLANKLINE>
+-- ...
+--     • Cannot have path components after a CaptureAll: /
+--     • When checking the inferred type
+--         it :: Proxy (TypeError ...)
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               CaptureAll "test" Bool :> "two" :> Get '[JSON] String
+--        ))
+--   )
+-- :}
+-- <BLANKLINE>
+-- ...
+--     • Cannot have path components after a CaptureAll: /
+--     • When checking the inferred type
+--         it :: Proxy (TypeError ...)
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               CaptureAll "test" Bool :> "two" :> Get '[JSON] String
+--        ))
+--   )
+-- :}
+-- <BLANKLINE>
+-- ...
+--     • Cannot have path components after a CaptureAll: /
+--     • When checking the inferred type
+--         it :: Proxy (TypeError ...)
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               CaptureAll "test" Bool :> Get '[JSON] String
+--          :<|> "one" :> "two" :> Get '[JSON] String
+--        ))
+--   )
+-- :}
+-- <BLANKLINE>
+-- ...
+--     • Conflicting paths detected: /one/two/
+--     • When checking the inferred type
+--         it :: Proxy (TypeError ...)
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               CaptureAll "test" Bool :> Get '[JSON] String
+--          :<|> "one" :> "two" :> Post '[JSON] String
+--        ))
+--   )
+-- :}
+-- Proxy
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               CaptureAll "test" Bool :> Get '[JSON] String
+--          :<|> "one" :> "two" :> Post '[JSON] String
+--          :<|> "one" :> "two" :> Post '[JSON] Bool
+--        ))
+--   )
+-- :}
+-- <BLANKLINE>
+-- ...
+--     • Conflicting paths detected: /one/two/
+--     • When checking the inferred type
+--         it :: Proxy (TypeError ...)
