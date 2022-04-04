@@ -23,7 +23,6 @@ data PathComponent
   = PathCapture -- ^ Matches any path component, i.e. 'Capture'
   | PathCaptureAll
   | Specific Symbol -- ^ Matches only the given string
-  -- | Body [Type] -- ^ Request body with specific content types
   | End (Maybe PathVerb) (Maybe ContentTypes)
   -- ^ The HTTP verb for an endpoint plus content types of request body if
   -- there is a request body
@@ -289,6 +288,18 @@ type family Insert either comp visited where
   Insert (Right trie) comp visited =
     Right (Reverse (MkNode comp trie ': visited))
 
+-- | Used for displaying a path in an error message
+type family PathToSymbol (path :: Path) :: Symbol where
+  PathToSymbol (Specific string ': rest) =
+    AppendSymbol (AppendSymbol "/" string) (PathToSymbol rest)
+  PathToSymbol (PathCapture ': rest) =
+    AppendSymbol "/{*}" (PathToSymbol rest)
+  PathToSymbol other = "/"
+
+--------------------------------------------------------------------------------
+-- Utils
+--------------------------------------------------------------------------------
+
 type family Disjoint (as :: [k]) (bs :: [k]) where
   Disjoint '[] _ = True
   Disjoint (a ': as) bs =
@@ -300,14 +311,6 @@ type family Elem (a :: k) (as :: [k]) where
   Elem x '[] = False
   Elem x (x ': _) = True
   Elem x (y ': xs) = Elem x xs
-
--- | Used for displaying a path in an error message
-type family PathToSymbol (path :: Path) :: Symbol where
-  PathToSymbol (Specific string ': rest) =
-    AppendSymbol (AppendSymbol "/" string) (PathToSymbol rest)
-  PathToSymbol (PathCapture ': rest) =
-    AppendSymbol "/{*}" (PathToSymbol rest)
-  PathToSymbol other = "/"
 
 type family Snd (tuple :: (k1, k2)) :: k2 where
   Snd '(a, b) = b
