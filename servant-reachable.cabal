@@ -46,7 +46,7 @@ extra-source-files: CHANGELOG.md
 
 library
     -- Modules exported by the library.
-    exposed-modules:  Servant.API.Reachable
+    exposed-modules:  Servant.Reachable
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -86,4 +86,7 @@ test-suite servant-reachable-test
     -- Test dependencies.
     build-depends:    base ^>=4.16.0.0,
                       servant-reachable,
+                      servant,
+                      servant-server,
                       doctest
+    ghc-options: -threaded

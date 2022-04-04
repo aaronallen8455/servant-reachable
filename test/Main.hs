@@ -1,4 +1,7 @@
 import           Test.DocTest
 
 main :: IO ()
-main = doctest ["-isrc", "test/Test.hs"]
+main = doctest [ "-XDataKinds"
+               , "-XTypeOperators"
+               , "-isrc" , "test/Test.hs"
+               ]
