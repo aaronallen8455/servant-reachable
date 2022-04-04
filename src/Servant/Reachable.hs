@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE PolyKinds #-}
@@ -12,7 +13,9 @@ import           Data.Kind
 import           Data.Type.Bool (If)
 import           GHC.TypeLits
 import           Servant.API
+#if MIN_VERSION_servant(0,0,19)
 import           Servant.API.Generic (ToServantApi)
+#endif
 
 type Trie = [Node]
 data Node = MkNode PathComponent [Node]
@@ -89,8 +92,10 @@ type family Reachable' (routes :: Trie) (path :: Path) (cts :: Maybe ContentType
     BindEither (Reachable' routes path cts a) path cts b
   Reachable' routes path cts EmptyAPI =
     Right routes
+#if MIN_VERSION_servant(0,0,19)
   Reachable' routes path cts (NamedRoutes api) =
     Reachable' routes path cts (ToServantApi api)
+#endif
   Reachable' routes path cts (WithNamedContext n s subApi) =
     Reachable' routes path cts subApi
   Reachable' routes path cts end =
