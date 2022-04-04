@@ -6,7 +6,7 @@
 {-# LANGUAGE DataKinds #-}
 module Servant.Reachable
   ( Reachable
-  , ToPath(..)
+  , ToPathComponent(..)
   ) where
 
 import           Data.Kind
@@ -20,11 +20,9 @@ import           Servant.API.Generic (ToServantApi)
 type Trie = [Node]
 data Node = MkNode PathComponent [Node]
 
--- For the Verb constructor, will need to be indifferent to the ordering of
--- the content types. Have some way of sorting them?
 data PathComponent
   = PathCapture -- ^ Matches any path component, i.e. 'Capture'
-  | PathCaptureAll
+  | PathCaptureAll -- ^ Consumes all subsequent path components
   | Specific Symbol -- ^ Matches only the given string
   | End (Maybe PathVerb) (Maybe ContentTypes)
   -- ^ The HTTP verb for an endpoint plus content types of request body if
@@ -34,49 +32,54 @@ type Path = [PathComponent]
 
 data PathVerb =
   MkPathVerb
-    StdMethod -- ^ method
+    StdMethod -- ^ HTTP method
     (Maybe ContentTypes) -- ^ Accept header content types. 'Nothing' for 'GetNoContent'.
 
 type ContentTypes = [Type]
 
-type family ToPath (component :: k) (cts :: Maybe ContentTypes)
+-- | Convert a Servant route component into the internal representation. Can
+-- also emit 'ContentTypes' if the component sets the acceptable Content-Type headers.
+type family ToPathComponent (component :: k) (cts :: Maybe ContentTypes)
   :: (Maybe PathComponent, Maybe ContentTypes)
 
-type instance ToPath (string :: Symbol) _ = '(Just (Specific string), Nothing)
-type instance ToPath (Capture' mods label ty) _ = '(Just PathCapture, Nothing)
-type instance ToPath (CaptureAll sym a) _ = '(Just PathCaptureAll, Nothing)
-type instance ToPath (ReqBody' mods contentTypes a) _
+type instance ToPathComponent (string :: Symbol) _ = '(Just (Specific string), Nothing)
+type instance ToPathComponent (Capture' mods label ty) _ = '(Just PathCapture, Nothing)
+type instance ToPathComponent (CaptureAll sym a) _ = '(Just PathCaptureAll, Nothing)
+type instance ToPathComponent (ReqBody' mods contentTypes a) _
   = '(Nothing, Just contentTypes)
-type instance ToPath (StreamBody' mods framing ctype a) _
+type instance ToPathComponent (StreamBody' mods framing ctype a) _
   = '(Nothing, Just '[ctype])
 -- verbs
-type instance ToPath (Verb method statusCode contentTypes a) cts
+type instance ToPathComponent (Verb method statusCode contentTypes a) cts
   = '(Just (End (Just (MkPathVerb method (Just contentTypes))) cts), Nothing)
-type instance ToPath (NoContentVerb method) cts
+type instance ToPathComponent (NoContentVerb method) cts
   = '(Just (End (Just (MkPathVerb method Nothing)) cts), Nothing)
-type instance ToPath (UVerb method contentTypes as) cts
+type instance ToPathComponent (UVerb method contentTypes as) cts
   = '(Just (End (Just (MkPathVerb method (Just contentTypes))) cts), Nothing)
-type instance ToPath (Stream method status framing contentType a) cts
+type instance ToPathComponent (Stream method status framing contentType a) cts
   = '(Just (End (Just (MkPathVerb method (Just '[contentType]))) cts), Nothing)
-type instance ToPath Raw cts = '(Just (End Nothing cts), Nothing)
+type instance ToPathComponent Raw cts = '(Just (End Nothing cts), Nothing)
 -- No-ops
-type instance ToPath (Description sym) _ = '(Nothing, Nothing)
-type instance ToPath (AuthProtect tag) _ = '(Nothing, Nothing)
-type instance ToPath (Summary sym) _ = '(Nothing, Nothing)
-type instance ToPath RemoteHost _ = '(Nothing, Nothing)
-type instance ToPath IsSecure _ = '(Nothing, Nothing)
-type instance ToPath Vault _ = '(Nothing, Nothing)
-type instance ToPath HttpVersion _ = '(Nothing, Nothing)
-type instance ToPath RemoteHost _ = '(Nothing, Nothing)
-type instance ToPath (QueryParam' mods sym a) _ = '(Nothing, Nothing)
-type instance ToPath (QueryParams sym a) _ = '(Nothing, Nothing)
-type instance ToPath (QueryFlag sym) _ = '(Nothing, Nothing)
-type instance ToPath (Header' mods sym a) _ = '(Nothing, Nothing)
-type instance ToPath IsSecure _ = '(Nothing, Nothing)
-type instance ToPath (Fragment a) _ = '(Nothing, Nothing)
-type instance ToPath (AuthProtect tag) _ = '(Nothing, Nothing)
-type instance ToPath (BasicAuth realm usr) _ = '(Nothing, Nothing)
+type instance ToPathComponent (Description sym) _ = '(Nothing, Nothing)
+type instance ToPathComponent (AuthProtect tag) _ = '(Nothing, Nothing)
+type instance ToPathComponent (Summary sym) _ = '(Nothing, Nothing)
+type instance ToPathComponent RemoteHost _ = '(Nothing, Nothing)
+type instance ToPathComponent IsSecure _ = '(Nothing, Nothing)
+type instance ToPathComponent Vault _ = '(Nothing, Nothing)
+type instance ToPathComponent HttpVersion _ = '(Nothing, Nothing)
+type instance ToPathComponent RemoteHost _ = '(Nothing, Nothing)
+type instance ToPathComponent (QueryParam' mods sym a) _ = '(Nothing, Nothing)
+type instance ToPathComponent (QueryParams sym a) _ = '(Nothing, Nothing)
+type instance ToPathComponent (QueryFlag sym) _ = '(Nothing, Nothing)
+type instance ToPathComponent (Header' mods sym a) _ = '(Nothing, Nothing)
+type instance ToPathComponent IsSecure _ = '(Nothing, Nothing)
+type instance ToPathComponent (Fragment a) _ = '(Nothing, Nothing)
+type instance ToPathComponent (AuthProtect tag) _ = '(Nothing, Nothing)
+type instance ToPathComponent (BasicAuth realm usr) _ = '(Nothing, Nothing)
 
+-- | This type family is the identity over a valid API but throws a type error
+-- if the API contains any routes that are not fully reachable in the sense
+-- that there is no generalized way to form a request that will reach it.
 type family Reachable (api :: Type) :: Type where
   Reachable api = ResolveEither (Reachable' '[] '[] Nothing api) api
 
@@ -87,7 +90,7 @@ type family ResolveEither (either :: Either a b) (x :: a) :: a where
 type family Reachable' (routes :: Trie) (path :: Path) (cts :: Maybe ContentTypes) (api :: Type)
     :: Either Type Trie  where
   Reachable' routes path cts (component :> rest) =
-    AddComponent (ToPath component cts) routes path cts rest
+    AddComponent (ToPathComponent component cts) routes path cts rest
   Reachable' routes path cts (a :<|> b) =
     BindEither (Reachable' routes path cts a) path cts b
   Reachable' routes path cts EmptyAPI =
@@ -99,7 +102,7 @@ type family Reachable' (routes :: Trie) (path :: Path) (cts :: Maybe ContentType
   Reachable' routes path cts (WithNamedContext n s subApi) =
     Reachable' routes path cts subApi
   Reachable' routes path cts end =
-    AddEnd (ToPath end cts) routes path
+    AddEnd (ToPathComponent end cts) routes path
 
 type family AddComponent component routes path cts rest where
   AddComponent '(Nothing, Nothing) routes path cts rest =
@@ -160,12 +163,13 @@ type family CheckPath' (visited :: Trie) (routes :: Trie) (path :: Path) (pathSy
                      pathSym)
          (Left (InvalidPathError pathSym))
 
+  -- | Raw endpoints without content types shadow any other route at that path.
   CheckPath' visited (MkNode (End Nothing Nothing) '[] ': trieRest)
                      '[End verb cts1]
                      pathSym
     = Left (InvalidPathError pathSym)
 
-  -- If both have content types, check that they are disjoint
+  -- | If both have content types, check that they are disjoint
   CheckPath' visited
     (MkNode (End (Just (MkPathVerb meth acceptTys0)) (Just cts0)) desc ': trieRest)
     '[End (Just (MkPathVerb meth acceptTys1)) (Just cts1)]
@@ -182,7 +186,7 @@ type family CheckPath' (visited :: Trie) (routes :: Trie) (path :: Path) (pathSy
             '[End (Just (MkPathVerb meth acceptTys1)) (Just cts1)]
             pathSym)
 
-  -- If the first has no content types. To be valid the accept types must be
+  -- | If the first has no content types, to be valid the accept types must be
   -- the distinguishing factor.
   CheckPath' visited
     (MkNode (End (Just (MkPathVerb meth acceptTys0)) Nothing) desc ': trieRest)
@@ -194,23 +198,13 @@ type family CheckPath' (visited :: Trie) (routes :: Trie) (path :: Path) (pathSy
         '[End (Just (MkPathVerb meth acceptTys1)) cts]
         pathSym
 
-  CheckPath' visited
-    (MkNode (End (Just (MkPathVerb meth acceptTys0)) (Just cts)) desc ': trieRest)
-    '[End (Just (MkPathVerb meth acceptTys1)) Nothing]
-    pathSym
-    = CheckPath'
-        (MkNode (End (Just (MkPathVerb meth acceptTys0)) (Just cts)) desc ': visited)
-        trieRest
-        '[End (Just (MkPathVerb meth acceptTys1)) Nothing]
-        pathSym
-
-  -- Descend if path components match
+  -- | Descend if path components match
   CheckPath' visited (MkNode comp inner ': trieRest)
                      (comp ': pathRest)
                      pathSym
     = Descend (CheckPath' '[] inner pathRest pathSym) visited comp trieRest
 
-  -- PathCapture overshadows Specific
+  -- | PathCapture overshadows Specific
   CheckPath' visited (MkNode PathCapture inner ': trieRest)
                      (Specific sym ': pathRest)
                      pathSym
@@ -221,22 +215,24 @@ type family CheckPath' (visited :: Trie) (routes :: Trie) (path :: Path) (pathSy
         (Specific sym ': pathRest)
         pathSym
 
+  -- | PathCaptureAll overshadows all subsequent Specifics
   CheckPath' visited (MkNode PathCaptureAll inner ': trieRest)
                      path
                      pathSym
     = HandleCaptureAll visited inner trieRest path pathSym
 
-  -- Recurse if node doesn't match
+  -- | Recurse if node doesn't match
   CheckPath' visited (MkNode comp1 inner ': trieRest) (comp2 ': pathRest) pathSym
     = CheckPath' (MkNode comp1 inner ': visited) trieRest (comp2 ': pathRest) pathSym
 
-  -- Insert node if there's no matching nodes
+  -- | Insert node if there's no matching nodes
   CheckPath' visited '[] (comp ': pathRest) pathSym
     = Insert (CheckPath' '[] '[] pathRest pathSym) comp visited
 
+  -- | Base case
   CheckPath' '[] '[] '[] _ = Right '[]
 
--- If content types are such that the accept types need to be differencianted
+-- If content types are such that the accept types need to be differencianted,
 -- then this should fail if both are nothing.
 type family CheckAcceptTypes acceptTys0 acceptTys1 visited trieRest path pathSym
     :: Either Type Trie where
@@ -245,7 +241,6 @@ type family CheckAcceptTypes acceptTys0 acceptTys1 visited trieRest path pathSym
        (CheckPath' visited trieRest path pathSym)
        (Left (InvalidPathError pathSym))
 
-  -- If we got here, that means
   CheckAcceptTypes Nothing Nothing visited trieRest path pathSym =
     Left (InvalidPathError pathSym)
 

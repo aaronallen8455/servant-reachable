@@ -232,3 +232,72 @@ import           Servant.Reachable
 --     • Conflicting paths detected: /one/two/
 --     • When checking the inferred type
 --         it :: Proxy (TypeError ...)
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               "one" :> ReqBody '[PlainText] String :> Post '[JSON] String
+--          :<|> "one" :> ReqBody '[JSON] Bool :> Post '[JSON] Bool
+--        ))
+--   )
+-- :}
+-- Proxy
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               "one" :> ReqBody '[PlainText] String :> Post '[PlainText, JSON] String
+--          :<|> "one" :> ReqBody '[JSON] Bool :> Post '[JSON, PlainText] Bool
+--        ))
+--   )
+-- :}
+-- Proxy
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               "one" :> ReqBody '[PlainText, JSON] String :> Post '[JSON] String
+--          :<|> "one" :> ReqBody '[JSON, PlainText] Bool :> Post '[PlainText] Bool
+--        ))
+--   )
+-- :}
+-- Proxy
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               GetNoContent
+--          :<|> ReqBody '[JSON] Bool :> GetNoContent
+--        ))
+--   )
+-- :}
+-- <BLANKLINE>
+-- ...
+--     • Conflicting paths detected: /
+--     • When checking the inferred type
+--         it :: Proxy (TypeError ...)
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               ReqBody '[JSON] Bool :> GetNoContent
+--          :<|> GetNoContent
+--        ))
+--   )
+-- :}
+-- Proxy
+
+-- $
+-- >>> :{
+--   (Proxy :: Proxy (Reachable (
+--               "one" :> ReqBody '[PlainText, JSON] String :> Post '[JSON] String
+--          :<|> EmptyAPI
+--          :<|> "one" :> ReqBody '[JSON, PlainText] Bool :> Post '[JSON] Bool
+--        ))
+--   )
+-- :}
+-- <BLANKLINE>
+-- ...
+--     • Conflicting paths detected: /one/
+--     • When checking the inferred type
+--         it :: Proxy (TypeError ...)
