@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -7,12 +9,19 @@
 module Servant.Reachable
   ( Reachable
   , ToPathComponent(..)
+  , ToMimeSymbols(..)
+  , defaultContentTypes
   ) where
 
 import           Data.Kind
+import qualified Data.List.NonEmpty as NE
+import           Data.Proxy
+import           Data.String
 import           Data.Type.Bool (If)
 import           GHC.TypeLits
+import           Network.HTTP.Media (MediaType)
 import           Servant.API
+import           Servant.API.ContentTypes (JSON, PlainText, FormUrlEncoded, OctetStream)
 #if MIN_VERSION_servant(0,0,19)
 import           Servant.API.Generic (ToServantApi)
 #endif
@@ -24,7 +33,7 @@ data PathComponent
   = PathCapture -- ^ Matches any path component, i.e. 'Capture'
   | PathCaptureAll -- ^ Consumes all subsequent path components
   | Specific Symbol -- ^ Matches only the given string
-  | End (Maybe PathVerb) (Maybe ContentTypes)
+  | End (Maybe PathVerb) (Maybe MimeSymbols)
   -- ^ The HTTP verb for an endpoint plus content types of request body if
   -- there is a request body
 
@@ -33,31 +42,57 @@ type Path = [PathComponent]
 data PathVerb =
   MkPathVerb
     StdMethod -- ^ HTTP method
-    (Maybe ContentTypes) -- ^ Accept header content types. 'Nothing' for 'GetNoContent'.
+    (Maybe MimeSymbols) -- ^ Accept header content types. 'Nothing' for 'GetNoContent'.
 
-type ContentTypes = [Type]
+type MimeSymbols = [MimeSymbol]
+type MimeSymbol = Symbol
+
+-- | Produce a type level list of the media types associated to a content type
+type family ToMimeSymbols (contentType :: Type) :: (MimeSymbol, MimeSymbols)
+type instance ToMimeSymbols JSON = '("application/json", '[])
+type instance ToMimeSymbols PlainText = '("text/plain;charset=utf-8", '[])
+type instance ToMimeSymbols FormUrlEncoded = '("application/x-www-form-urlencoded", '[])
+type instance ToMimeSymbols OctetStream = '("application/octet-stream", '[])
+
+-- | If you have a ToMimeSymbols instance for a content type, use this to
+-- implement the 'contentTypes' method of the 'Accept' class for that type.
+defaultContentTypes :: forall ctype x xs
+                     . ('(x, xs) ~ ToMimeSymbols ctype, KnownSymbols xs
+                       , KnownSymbol x
+                       )
+                    => Proxy ctype -> NE.NonEmpty MediaType
+defaultContentTypes Proxy =
+  fromString <$>
+    symbolVal (Proxy @x) NE.:| symbolVals (Proxy @xs)
+
+type family ToList (cts :: (MimeSymbol, MimeSymbols)) :: MimeSymbols where
+  ToList '(x, xs) = x ': xs
+
+type family ConcatMap (contentTypes :: [Type]) :: MimeSymbols where
+  ConcatMap '[] = '[]
+  ConcatMap (ct ': rest) = ToList (ToMimeSymbols ct) `Append` ConcatMap rest
 
 -- | Convert a Servant route component into the internal representation. Can
 -- also emit 'ContentTypes' if the component sets the acceptable Content-Type headers.
-type family ToPathComponent (component :: k) (cts :: Maybe ContentTypes)
-  :: (Maybe PathComponent, Maybe ContentTypes)
+type family ToPathComponent (component :: k) (cts :: Maybe MimeSymbols)
+  :: (Maybe PathComponent, Maybe MimeSymbols)
 
 type instance ToPathComponent (string :: Symbol) _ = '(Just (Specific string), Nothing)
 type instance ToPathComponent (Capture' mods label ty) _ = '(Just PathCapture, Nothing)
 type instance ToPathComponent (CaptureAll sym a) _ = '(Just PathCaptureAll, Nothing)
 type instance ToPathComponent (ReqBody' mods contentTypes a) _
-  = '(Nothing, Just contentTypes)
+  = '(Nothing, Just (ConcatMap contentTypes))
 type instance ToPathComponent (StreamBody' mods framing ctype a) _
-  = '(Nothing, Just '[ctype])
+  = '(Nothing, Just (ConcatMap '[ctype]))
 -- verbs
 type instance ToPathComponent (Verb method statusCode contentTypes a) cts
-  = '(Just (End (Just (MkPathVerb method (Just contentTypes))) cts), Nothing)
+  = '(Just (End (Just (MkPathVerb method (Just (ConcatMap contentTypes)))) cts), Nothing)
 type instance ToPathComponent (NoContentVerb method) cts
   = '(Just (End (Just (MkPathVerb method Nothing)) cts), Nothing)
 type instance ToPathComponent (UVerb method contentTypes as) cts
-  = '(Just (End (Just (MkPathVerb method (Just contentTypes))) cts), Nothing)
+  = '(Just (End (Just (MkPathVerb method (Just (ConcatMap contentTypes)))) cts), Nothing)
 type instance ToPathComponent (Stream method status framing contentType a) cts
-  = '(Just (End (Just (MkPathVerb method (Just '[contentType]))) cts), Nothing)
+  = '(Just (End (Just (MkPathVerb method (Just (ConcatMap '[contentType])))) cts), Nothing)
 type instance ToPathComponent Raw cts = '(Just (End Nothing cts), Nothing)
 -- No-ops
 type instance ToPathComponent (Description sym) _ = '(Nothing, Nothing)
@@ -87,7 +122,7 @@ type family ResolveEither (either :: Either a b) (x :: a) :: a where
   ResolveEither (Left err) _ = err
   ResolveEither (Right _) x = x
 
-type family Reachable' (routes :: Trie) (path :: Path) (cts :: Maybe ContentTypes) (api :: Type)
+type family Reachable' (routes :: Trie) (path :: Path) (cts :: Maybe MimeSymbols) (api :: Type)
     :: Either Type Trie  where
   Reachable' routes path cts (component :> rest) =
     AddComponent (ToPathComponent component cts) routes path cts rest
@@ -114,7 +149,7 @@ type family AddComponent component routes path cts rest where
   AddComponent '(Just c, Nothing) routes path cts rest =
     Reachable' routes (c ': path) cts rest
 
-type family AddEnd (component :: (Maybe PathComponent, Maybe ContentTypes))
+type family AddEnd (component :: (Maybe PathComponent, Maybe MimeSymbols))
                    routes
                    (path :: Path) where
   AddEnd '(Nothing, _) routes path =
@@ -325,3 +360,12 @@ type family Reverse' acc xs where
 type family Append (xs :: [a]) (ys :: [a]) where
   Append '[] ys = ys
   Append (x ': xs) ys = x ': Append xs ys
+
+class KnownSymbols (symbols :: [Symbol]) where
+  symbolVals :: Proxy symbols -> [String]
+
+instance (KnownSymbol x, KnownSymbols xs) => KnownSymbols (x ': xs) where
+  symbolVals Proxy = symbolVal (Proxy @x) : symbolVals (Proxy @xs)
+
+instance KnownSymbols '[] where
+  symbolVals Proxy = []

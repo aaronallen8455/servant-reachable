@@ -56,7 +56,8 @@ library
 
     -- Other library packages from which modules are imported.
     build-depends:    base >=4.10.0.0,
-                      servant
+                      servant,
+                      http-media
 
     -- Directories containing source files.
     hs-source-dirs:   src
